@@ -1,25 +1,159 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "Step Analysis - Reproducible Research Project 1"
+output: html_document
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This is an analysis of data acquired from a personal activity monitoring device. The data are from one  
+individual and has the following variables:  
+
+* **steps**: Number of steps taking in a 5-minute interval (missing values are coded as NA)  
+* **date**: The date on which the measurement was taken in YYYY-MM-DD format  
+* **interval**: Identifier for the 5-minute interval in which measurement was taken  
+
+There are a total of 17,568 observations in this dataset.  
+
+We will be using the following packages (we will suppress warnings to keep the html compact):
+```{r pkgs, results="hide",warning=FALSE}
+suppressWarnings(suppressMessages(library(plyr)))
+suppressWarnings(suppressMessages(library(dplyr)))
+suppressWarnings(suppressMessages(library(data.table)))
+suppressWarnings(suppressMessages(library(downloader)))
+suppressWarnings(suppressMessages(library(xtable)))
+suppressWarnings(suppressMessages(library(lubridate)))
+suppressWarnings(suppressMessages(library(ggplot2)))
+```
 
 ## Loading and preprocessing the data
 
+Next we will load the data into a dataframe, rename and summarize.
+```{r loadtable}
+url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+download.file(url, "Steps_Dataset.zip")
+unzip("Steps_Dataset.zip")
+activity <- read.table('activity.csv', sep = ",", header = TRUE)
+head(activity)
+```
+
+## Mean total number of steps taken per day
+
+First, let's check the total number of steps per day.
+```{r meaner}
+meancheck <- activity %>%
+  group_by(date) %>%
+  summarise(totaldaily = sum(steps, na.rm=TRUE))
+```
+
+Second, we will create a histogram of the total steps per day.
+```{r meanhist}
+meancheck$totaldaily <- as.numeric(meancheck$totaldaily)
+hist(meancheck$totaldaily, breaks=100, col="red")
+```
 
 
-## What is mean total number of steps taken per day?
+Finally, let's calculate the mean and median
+```{r meandian}
+mean_steps <- meancheck %>%
+  summarise(mean_total = mean(totaldaily, na.rm=TRUE))
+mean_steps
 
+median_steps <- meancheck %>%
+  summarise(median_total = median(totaldaily, na.rm=TRUE))
+median_steps
+```
 
+## Average daily activity pattern
 
-## What is the average daily activity pattern?
+Here we will group by interval but also take the average across days while doing so.
+```{r meanplot}
+interval_steps <- activity %>%
+  group_by(interval) %>%
+  summarise(totaldaily = mean(steps, na.rm=TRUE))
+interval_steps
 
+plot(interval_steps$interval, interval_steps$totaldaily, type = "l", 
+     xlab="Interval", ylab="Average daily steps", col="red" , lwd=2)
+```
 
+And the maximum steps for an interval is:
+```{r maxint}
+max_interval <- interval_steps[which(interval_steps$totaldaily == max(interval_steps$totaldaily, na.rm = TRUE)), ]
+max_interval
+```
 
-## Imputing missing values
+## Impute missing value
 
+The total number of missing values is:
+```{r miss}
+nrow(activity[activity$steps == "NA",])
+```
 
+For imputation, We will use the average value for the interval across all days.
+```{r imputer}
+impute.mean <- function(x) replace(x, is.na(x), mean(x, na.rm = TRUE))
+activity_imp <- ddply(activity, ~ interval, transform, steps = impute.mean(steps))
+activity_impord <- activity_imp[order(activity_imp$date), ]
+nrow(activity_imp[activity_impord$steps == "NA",])
+```
 
-## Are there differences in activity patterns between weekdays and weekends?
+And here is the new histogram as well as the new mean and median:
+```{r imphist}
+meancheck_imp <- activity_impord %>%
+  group_by(date) %>%
+  summarise(totaldaily = sum(steps, na.rm=TRUE))
+
+meancheck_imp$totaldaily <- as.numeric(meancheck_imp$totaldaily)
+hist(meancheck_imp$totaldaily, breaks=100, col="red")
+
+mean_steps_imp <- meancheck_imp %>%
+  summarise(mean_total = mean(totaldaily, na.rm=TRUE))
+mean_steps_imp
+
+median_steps_imp <- meancheck_imp %>%
+  summarise(median_total = median(totaldaily, na.rm=TRUE))
+median_steps_imp
+```
+
+## Difference between Weekdays and Weekends
+
+First we need to add a variable that differentiates between weekends and weekdays.  
+In this case, we will use a boolean flag.
+```{r daytype}
+activity_impord %>%
+  mutate(weekend = (weekdays(ymd(date))=="Saturday" | weekdays(ymd(date))=="Sunday")) %>%
+  head()
+```
+
+Next we will create two separate data sets for weekends and weekdays using this flag.  
+First for the weekends:
+```{r wknd}
+int_wknd <- activity_impord %>%
+  mutate(weekend = (weekdays(ymd(date))=="Saturday" | weekdays(ymd(date))=="Sunday")) %>%
+  filter(weekend == TRUE) %>%
+  group_by(interval) %>%
+  summarise(totaldaily = mean(steps, na.rm=TRUE)) %>%
+  print()
+```
+Then for the weekdays:
+```{r wkdy}
+int_wkdy <- activity_impord %>%
+  mutate(weekend = (weekdays(ymd(date))=="Saturday" | weekdays(ymd(date))=="Sunday")) %>%
+  filter(weekend == FALSE) %>%
+  group_by(interval) %>%
+  summarise(totaldaily = mean(steps, na.rm=TRUE)) %>%
+  print()
+```
+
+Finally lets visually compare them by plotting the time trends of both.
+```{r trendplot}
+par(mfrow=c(2,1),mar=c(4,4,1,1)+0.1, cex = 0.75)
+plot(int_wkdy$interval, int_wkdy$totaldaily, type = "l", 
+     xlab="Interval", ylab="Weekday daily steps", col="red" , lwd=2)
+plot(int_wknd$interval, int_wknd$totaldaily, type = "l", 
+     xlab="Interval", ylab="Weekend daily steps", col="blue" , lwd=2)
+```
+
+This is the end of the analysis.
